@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "FoodDealsApp",
+    "slug": "FoodDealsApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F1118"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fooddeals.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F1118"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.fooddeals.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Food Deals uses your location to show nearby food deals on the map."
+        }
+      ]
+    ]
+  }
+}
+
