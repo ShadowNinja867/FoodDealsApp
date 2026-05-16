@@ -68,6 +68,7 @@ export function FoodDealsMap() {
   const [selectedCategory, setSelectedCategory] = useState(ALL_KEY);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [pinScreenPositions, setPinScreenPositions] = useState({});
 
   // Restaurant search flow
   const [searchModalVisible, setSearchModalVisible] = useState(false);
@@ -96,8 +97,21 @@ export function FoodDealsMap() {
   const handleRegionChangeComplete = useCallback(
     (region) => {
       setMapRegion(region);
+      // Calculate screen positions for all visible pins
+      if (mapRef.current && locationPins.length > 0) {
+        locationPins.forEach((pin) => {
+          mapRef.current.pointForCoordinate({
+            latitude: pin.latitude,
+            longitude: pin.longitude,
+          }).then((point) => {
+            setPinScreenPositions((prev) => ({ ...prev, [pin.id]: point }));
+          }).catch(() => {
+            // Ignore errors if coordinates can't be converted
+          });
+        });
+      }
     },
-    []
+    [locationPins]
   );
 
   useEffect(() => {
@@ -387,27 +401,35 @@ export function FoodDealsMap() {
             <Marker
               key={pin.id}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              tracksViewChanges={false}
+              pinColor={pinColor}
               onPress={() => {
                 setSelectedDeal(pin);
                 setDetailVisible(true);
               }}
-              anchor={{ x: 0.5, y: 1 }}
-            >
-              <View style={styles.markerWrapper}>
-                {isZoomedIn && (
-                  <View style={styles.zoomMarkerChild}>
-                    <PinInfoCard pin={pin} pinColor={pinColor} />
-                  </View>
-                )}
-                <View style={[styles.markerPin, { backgroundColor: pinColor }]} />
-              </View>
-            </Marker>
+            />
           );
         })}
       </MapView>
 
-      {/* Zoom cards are attached to markers; no absolute overlay needed */}
+      {isZoomedIn && locationPins.map((pin) => {
+        const position = pinScreenPositions[pin.id];
+        if (!position) return null;
+        const pinColor = CATEGORY_COLORS[pin.deals[0]?.category] ?? '#94A3B8';
+        return (
+          <View
+            key={pin.id}
+            style={{
+              position: 'absolute',
+              left: position.x - 110,
+              top: position.y - 140,
+              zIndex: 100,
+              pointerEvents: 'none',
+            }}
+          >
+            <PinInfoCard pin={pin} pinColor={pinColor} />
+          </View>
+        );
+      })}
 
       <RestaurantSearchHeader selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory} subtitle={barSubtitle} />
 
@@ -528,16 +550,6 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 24,
   },
-  zoomMarkerChild: {
-    position: 'absolute',
-    bottom: 38,
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    width: 240,
-    backgroundColor: 'transparent',
-    overflow: 'visible',
-    zIndex: 999,
-  },
   drawerRoot: {
     flex: 1,
     flexDirection: 'row',
@@ -633,6 +645,7 @@ const styles = StyleSheet.create({
     width: 220,
     alignItems: 'flex-start',
   },
+
   pinInfoTitle: {
     color: '#0F172A',
     fontSize: 13,
@@ -651,25 +664,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 4,
   },
-  markerWrapper: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    overflow: 'visible',
-    width: 240,
-    height: 64,
-  },
-  markerPin: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: '#ffffff',
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
   zoomOverlay: {
     ...StyleSheet.absoluteFillObject,
     position: 'absolute',
@@ -678,11 +672,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 2,
-  },
-  zoomedCardWrapper: {
-    position: 'absolute',
-    width: 220,
-    alignItems: 'center',
   },
   fab: {
     position: 'absolute',
