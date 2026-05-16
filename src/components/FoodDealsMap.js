@@ -46,13 +46,15 @@ function buildPinDescription(pin) {
 function PinInfoCard({ pin, pinColor }) {
   const dealLines = pin.dealDescriptions ?? [pin.dealDescription ?? ''];
   return (
-    <View style={[styles.pinInfoCard, { borderColor: pinColor }]}> 
-      <Text style={styles.pinInfoTitle}>{pin.businessName}</Text>
-      <View style={styles.pinInfoDivider} />
+    <View style={[styles.pinInfoCard, { borderLeftColor: pinColor }]}>
+      <Text style={styles.pinInfoTitle} numberOfLines={1}>{pin.businessName}</Text>
       {dealLines.map((line, index) => (
-        <Text key={index} style={styles.pinInfoDescription}>
-          • {line}
-        </Text>
+        <View key={index} style={styles.dealRow}>
+          <Text style={[styles.dealDot, { color: pinColor }]}>•</Text>
+          <Text style={styles.pinInfoDescription} numberOfLines={2}>
+            {line}
+          </Text>
+        </View>
       ))}
     </View>
   );
@@ -388,7 +390,7 @@ export function FoodDealsMap() {
             <Marker
               key={`${pin.id}-${isZoomedIn}`}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              centerOffset={{ x: 0, y: -25 }}
+              anchor={{ x: 0.5, y: 1 }}
               onPress={() => {
                 setSelectedDeal(pin);
                 setDetailVisible(true);
@@ -613,6 +615,7 @@ const styles = StyleSheet.create({
   markerContainer: {
     alignItems: 'center',
     justifyContent: 'flex-end',
+    width: 240,
   },
   pinIcon: {
     fontSize: 32,
@@ -625,41 +628,44 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
   infoBoxAbovePin: {
-    marginBottom: 8,
+    marginBottom: 4,
+    width: '100%',
   },
   pinInfoCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 10,
-    marginBottom: 6,
+    backgroundColor: '#1E2330',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    width: 200,
+    alignSelf: 'center',
     shadowColor: '#000',
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-    width: 220,
-    alignItems: 'flex-start',
+    elevation: 8,
   },
-
   pinInfoTitle: {
-    color: '#0F172A',
+    color: '#F8FAFC',
     fontSize: 13,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 4,
   },
-  pinInfoDivider: {
-    height: 1,
-    width: '100%',
-    backgroundColor: '#E5E7EB',
-    marginBottom: 8,
+  dealRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 2,
+  },
+  dealDot: {
+    fontSize: 16,
+    lineHeight: 18,
+    marginRight: 6,
   },
   pinInfoDescription: {
-    color: '#334155',
+    color: '#94A3B8',
     fontSize: 12,
-    lineHeight: 18,
-    marginBottom: 4,
+    lineHeight: 16,
+    flex: 1,
   },
   zoomOverlay: {
     ...StyleSheet.absoluteFillObject,
