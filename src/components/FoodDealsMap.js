@@ -68,7 +68,6 @@ export function FoodDealsMap() {
   const [selectedCategory, setSelectedCategory] = useState(ALL_KEY);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [detailVisible, setDetailVisible] = useState(false);
-  const [pinScreenPositions, setPinScreenPositions] = useState({});
 
   // Restaurant search flow
   const [searchModalVisible, setSearchModalVisible] = useState(false);
@@ -96,22 +95,10 @@ export function FoodDealsMap() {
 
   const handleRegionChangeComplete = useCallback(
     (region) => {
+      console.log('Current Zoom Delta:', region.latitudeDelta);
       setMapRegion(region);
-      // Calculate screen positions for all visible pins
-      if (mapRef.current && locationPins.length > 0) {
-        locationPins.forEach((pin) => {
-          mapRef.current.pointForCoordinate({
-            latitude: pin.latitude,
-            longitude: pin.longitude,
-          }).then((point) => {
-            setPinScreenPositions((prev) => ({ ...prev, [pin.id]: point }));
-          }).catch(() => {
-            // Ignore errors if coordinates can't be converted
-          });
-        });
-      }
     },
-    [locationPins]
+    []
   );
 
   useEffect(() => {
@@ -399,37 +386,30 @@ export function FoodDealsMap() {
           const pinColor = CATEGORY_COLORS[pin.deals[0]?.category] ?? '#94A3B8';
           return (
             <Marker
-              key={pin.id}
+              key={`${pin.id}-${isZoomedIn}`}
               coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              pinColor={pinColor}
+              centerOffset={{ x: 0, y: -25 }}
               onPress={() => {
                 setSelectedDeal(pin);
                 setDetailVisible(true);
               }}
-            />
+            >
+              <View style={styles.markerContainer}>
+                {isZoomedIn && (
+                  <View style={styles.infoBoxAbovePin}>
+                    <PinInfoCard pin={pin} pinColor={pinColor} />
+                  </View>
+                )}
+                <View style={styles.pinIcon}>
+                  <Text style={styles.pinText}>📍</Text>
+                </View>
+              </View>
+            </Marker>
           );
         })}
       </MapView>
 
-      {isZoomedIn && locationPins.map((pin) => {
-        const position = pinScreenPositions[pin.id];
-        if (!position) return null;
-        const pinColor = CATEGORY_COLORS[pin.deals[0]?.category] ?? '#94A3B8';
-        return (
-          <View
-            key={pin.id}
-            style={{
-              position: 'absolute',
-              left: position.x - 110,
-              top: position.y - 140,
-              zIndex: 100,
-              pointerEvents: 'none',
-            }}
-          >
-            <PinInfoCard pin={pin} pinColor={pinColor} />
-          </View>
-        );
-      })}
+
 
       <RestaurantSearchHeader selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory} subtitle={barSubtitle} />
 
@@ -629,6 +609,23 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  markerContainer: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  pinIcon: {
+    fontSize: 32,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinText: {
+    fontSize: 32,
+  },
+  infoBoxAbovePin: {
+    marginBottom: 8,
   },
   pinInfoCard: {
     backgroundColor: '#FFFFFF',
