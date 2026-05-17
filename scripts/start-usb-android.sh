@@ -41,4 +41,7 @@ echo "Using adb: ${ADB}"
 "$ADB" reverse tcp:8081 tcp:8081
 "$ADB" reverse tcp:3000 tcp:3000
 echo "Ports 8081 (Metro) and 3000 (Food Deals API) on the phone forward to this Mac."
+
+# Force IPv4 address because some Android devices resolve localhost to IPv6 (::1) which breaks adb reverse
+export EXPO_PUBLIC_API_BASE_URL="http://127.0.0.1:3000"
 exec npx expo start --localhost

@@ -1,7 +1,7 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Alert, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRANCH_SEARCH_RADIUS_MILES, VISIBLE_DEALS_RADIUS_MILES } from '../constants/discovery';
 import { getCachedBranchesForArea, saveBranchesCache } from '../data/chainLocationsCache';
@@ -14,6 +14,97 @@ import { ALL_KEY, RestaurantSearchHeader } from './RestaurantSearchHeader';
 import { RestaurantSearchModal } from './RestaurantSearchModal';
 import { hasPlacesApiKey, resolveBranchesForChain } from '../services/googlePlaces';
 import { haversineDistanceMiles, milesToMeters } from '../utils/geo';
+
+// Leaflet HTML Template injected directly into the WebView
+const mapHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { margin: 0; padding: 0; background: #05060A; }
+    #map { width: 100vw; height: 100vh; }
+    .pin-marker {
+      width: 22px; height: 22px; border-radius: 50%; box-sizing: border-box;
+      border: 2px solid #FFFFFF; box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+      position: absolute; left: 0px; top: 0px; z-index: 2;
+    }
+    .pin-stem {
+      width: 3px; height: 10px; background: #FFFFFF;
+      position: absolute; left: 9.5px; top: 21px; z-index: 1;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+    .info-card {
+      background: #0F1118; border: 1px solid; border-radius: 8px;
+      padding: 8px 12px; color: #F8FAFC; width: max-content;
+      max-width: 160px; box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+      position: absolute; bottom: 36px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; z-index: 3;
+      pointer-events: none; /* Let clicks pass through the popup to the marker below */
+    }
+    .info-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-family: sans-serif; }
+    .info-deal { font-size: 11px; color: #94A3B8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; font-family: sans-serif; }
+    .user-dot-wrap {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: rgba(56, 189, 248, 0.3);
+      display: flex; justify-content: center; align-items: center;
+    }
+    .user-dot { width: 16px; height: 16px; border-radius: 50%; background: #38BDF8; border: 2px solid #FFFFFF; box-sizing: border-box; }
+    .leaflet-div-icon { background: transparent; border: none; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${DEFAULT_MAP_CENTER.latitude}, ${DEFAULT_MAP_CENTER.longitude}], 10);
+    
+    // Carto Voyager: Beautiful, free street map. Guaranteed to load in WebView.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 19 }).addTo(map);
+
+    let markers = {};
+    let userMarker = null;
+
+    map.on('zoomend', function() { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ZOOM_CHANGED', zoom: map.getZoom() })); });
+
+    window.updateMap = function(data) {
+      if (data.userLocation) {
+        if (!userMarker) {
+          const icon = L.divIcon({ html: '<div class="user-dot-wrap"><div class="user-dot"></div></div>', className: '', iconSize: [32, 32], iconAnchor: [16, 16] });
+          userMarker = L.marker([data.userLocation.lat, data.userLocation.lng], { icon, zIndexOffset: 1000 }).addTo(map);
+          map.setView([data.userLocation.lat, data.userLocation.lng], 15);
+        } else {
+          userMarker.setLatLng([data.userLocation.lat, data.userLocation.lng]);
+        }
+      }
+
+      for (let id in markers) {
+        if (!data.pins.find(p => p.id === id)) { map.removeLayer(markers[id]); delete markers[id]; }
+      }
+
+      data.pins.forEach(pin => {
+        let html = '';
+        if (data.isZoomedIn) {
+          let linesHtml = pin.lines.map(l => '<div class="info-deal">' + l + '</div>').join('');
+          html += '<div class="info-card" style="border-color:' + pin.color + '"><div class="info-title">' + pin.title + '</div>' + linesHtml + '</div>';
+        }
+        html += '<div class="pin-marker" style="background:' + pin.color + '"></div><div class="pin-stem"></div>';
+
+        // Tell Leaflet the physical size of the pin so the touch-area matches perfectly
+        const icon = L.divIcon({ html, className: '', iconSize: [22, 32], iconAnchor: [11, 32] });
+        if (markers[pin.id]) { markers[pin.id].setIcon(icon); markers[pin.id].setLatLng([pin.lat, pin.lng]); } else {
+          const m = L.marker([pin.lat, pin.lng], { icon }).addTo(map);
+          m.on('click', () => { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MARKER_CLICK', id: pin.id })); });
+          markers[pin.id] = m;
+        }
+      });
+    };
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'READY' }));
+  </script>
+</body>
+</html>
+`;
 
 const CATEGORY_COLORS = {
   Mains: '#F97316',
@@ -37,34 +128,15 @@ function buildPinDisplayLines(pin) {
   ];
 }
 
-const ZOOMED_IN_LABEL_THRESHOLD = 0.01;
-
-function buildPinDescription(pin) {
-  return buildPinDisplayLines(pin).slice(1).join('\n');
-}
-
-function PinInfoCard({ pin, pinColor }) {
-  const dealLines = pin.dealDescriptions ?? [pin.dealDescription ?? ''];
-  return (
-    <View style={[styles.pinInfoCard, { borderLeftColor: pinColor }]}>
-      <Text style={styles.pinInfoTitle} numberOfLines={1}>{pin.businessName}</Text>
-      {dealLines.map((line, index) => (
-        <View key={index} style={styles.dealRow}>
-          <Text style={[styles.dealDot, { color: pinColor }]}>•</Text>
-          <Text style={styles.pinInfoDescription} numberOfLines={2}>
-            {line}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 export function FoodDealsMap() {
-  const mapRef = useRef(null);
+  const webViewRef = useRef(null);
   const insets = useSafeAreaInsets();
   const searchAbortRef = useRef(null);
-  const [mapRegion, setMapRegion] = useState(null);
+  const locationPinsRef = useRef([]);
+  const [isMapReady, setIsMapReady] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(10);
+  
+  const isZoomedIn = zoomLevel >= 15;
   const [deals, setDeals] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(ALL_KEY);
@@ -83,25 +155,29 @@ export function FoodDealsMap() {
   const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
 
-  const centerOnCoordinate = useCallback((latitude, longitude, delta = 0.035) => {
-    mapRef.current?.animateToRegion(
-      {
-        latitude,
-        longitude,
-        latitudeDelta: delta,
-        longitudeDelta: delta,
-      },
-      500
-    );
+  const centerOnCoordinate = useCallback((latitude, longitude, zoomLevel = 15) => {
+    webViewRef.current?.injectJavaScript(`
+      if (typeof map !== 'undefined') { map.setView([${latitude}, ${longitude}], ${zoomLevel}); }
+      true;
+    `);
   }, []);
 
-  const handleRegionChangeComplete = useCallback(
-    (region) => {
-      console.log('Current Zoom Delta:', region.latitudeDelta);
-      setMapRegion(region);
-    },
-    []
-  );
+  const onMessage = useCallback((event) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg.type === 'READY') {
+        setIsMapReady(true);
+      } else if (msg.type === 'ZOOM_CHANGED') {
+        setZoomLevel(msg.zoom);
+      } else if (msg.type === 'MARKER_CLICK') {
+          const pin = locationPinsRef.current.find((p) => p.id === msg.id);
+        if (pin) {
+          setSelectedDeal(pin);
+          setDetailVisible(true);
+        }
+      }
+    } catch (e) {}
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,12 +207,30 @@ export function FoodDealsMap() {
       if (cancelled) return;
       const { latitude, longitude } = current.coords;
       setUserLocation({ latitude, longitude });
-      centerOnCoordinate(latitude, longitude);
+      centerOnCoordinate(latitude, longitude, 15);
     })();
     return () => {
       cancelled = true;
     };
   }, [centerOnCoordinate]);
+
+  useEffect(() => {
+    if (!isMapReady || !webViewRef.current) return;
+    const data = {
+      userLocation: userLocation ? { lat: userLocation.latitude, lng: userLocation.longitude } : null,
+      pins: locationPins.map(pin => ({
+        id: pin.id,
+        lat: pin.latitude,
+        lng: pin.longitude,
+        color: CATEGORY_COLORS[pin.deals[0]?.category] ?? '#94A3B8',
+        title: pin.businessName,
+        lines: buildPinDisplayLines(pin).slice(1)
+      })),
+      isZoomedIn
+    };
+    const js = `if (window.updateMap) window.updateMap(${JSON.stringify(data)}); true;`;
+    webViewRef.current.injectJavaScript(js);
+  }, [locationPins, userLocation, isZoomedIn, isMapReady]);
 
   const categoryFilteredDeals = useMemo(() => {
     if (selectedCategory === ALL_KEY) return deals;
@@ -177,11 +271,10 @@ export function FoodDealsMap() {
     );
   }, [categoryFilteredDeals, userLocation]);
 
-
-  const isZoomedIn = useMemo(() => {
-    if (!mapRegion) return false;
-    return Math.min(mapRegion.latitudeDelta, mapRegion.longitudeDelta) <= ZOOMED_IN_LABEL_THRESHOLD;
-  }, [mapRegion]);
+  // Keep the ref strictly in sync with locationPins to prevent WebView stale closures
+  useEffect(() => {
+    locationPinsRef.current = locationPins;
+  }, [locationPins]);
 
   const activeChains = useMemo(() => {
     const chains = {};
@@ -373,44 +466,17 @@ export function FoodDealsMap() {
           <Text style={styles.burgerIcon}>☰</Text>
         </Pressable>
       </View>
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFill}
-        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
-        initialRegion={DEFAULT_MAP_CENTER}
-        showsUserLocation
-        showsMyLocationButton={Platform.OS === 'android'}
-        showsCompass
-        mapPadding={{ top: 200, right: 0, bottom: 100, left: 0 }}
-        onRegionChangeComplete={handleRegionChangeComplete}
-      >
-        {locationPins.map((pin) => {
-          const pinColor = CATEGORY_COLORS[pin.deals[0]?.category] ?? '#94A3B8';
-          return (
-            <Marker
-              key={`${pin.id}-${isZoomedIn}`}
-              coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
-              anchor={{ x: 0.5, y: 1 }}
-              onPress={() => {
-                setSelectedDeal(pin);
-                setDetailVisible(true);
-              }}
-            >
-              <View style={styles.markerContainer}>
-                {isZoomedIn && (
-                  <View style={styles.infoBoxAbovePin}>
-                    <PinInfoCard pin={pin} pinColor={pinColor} />
-                  </View>
-                )}
-                <View style={styles.pinIcon}>
-                  <Text style={styles.pinText}>📍</Text>
-                </View>
-              </View>
-            </Marker>
-          );
-        })}
-      </MapView>
 
+      <WebView
+        ref={webViewRef}
+        source={{ html: mapHtml }}
+        onMessage={onMessage}
+        scrollEnabled={false}
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        style={StyleSheet.absoluteFill}
+      />
 
 
       <RestaurantSearchHeader selectedCategory={selectedCategory} onSelectCategory={setSelectedCategory} subtitle={barSubtitle} />
@@ -611,70 +677,6 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 18,
     fontWeight: 'bold',
-  },
-  markerContainer: {
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    width: 240,
-  },
-  pinIcon: {
-    fontSize: 32,
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pinText: {
-    fontSize: 32,
-  },
-  infoBoxAbovePin: {
-    marginBottom: 4,
-    width: '100%',
-  },
-  pinInfoCard: {
-    backgroundColor: '#1E2330',
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    width: 200,
-    alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  pinInfoTitle: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  dealRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: 2,
-  },
-  dealDot: {
-    fontSize: 16,
-    lineHeight: 18,
-    marginRight: 6,
-  },
-  pinInfoDescription: {
-    color: '#94A3B8',
-    fontSize: 12,
-    lineHeight: 16,
-    flex: 1,
-  },
-  zoomOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 2,
   },
   fab: {
     position: 'absolute',
