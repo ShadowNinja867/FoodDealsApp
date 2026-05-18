@@ -16,8 +16,7 @@ const NEARBY_FOOD_TYPES = [
   'fast_food_restaurant',
   'meal_takeaway',
   'cafe',
-  'coffee_shop',
-  'bakery',
+  'coffee_shop'
 ];
 
 function getApiKey() {
@@ -107,71 +106,6 @@ export async function autocompleteRestaurants(input, location, signal) {
   return out;
 }
 
-async function searchNearbyBranches(textQuery, location, radiusMeters, signal) {
-  const key = getApiKey();
-  if (!key) throw new Error('Server missing GOOGLE_PLACES_API_KEY');
-
-  const radiusMetersForBias = Math.min(radiusMeters, 50000);
-  const maxPages = 3;
-  const all = [];
-  let pageToken = undefined;
-
-  for (let page = 0; page < maxPages; page += 1) {
-    const body = {
-      textQuery: textQuery.trim(),
-      pageSize: 20,
-    };
-    if (radiusMeters <= 50000) {
-      body.locationBias = {
-        circle: {
-          center: { latitude: location.latitude, longitude: location.longitude },
-          radius: radiusMetersForBias,
-        },
-      };
-    }
-    if (pageToken) body.pageToken = pageToken;
-
-    const res = await fetch(SEARCH_TEXT_URL, {
-      method: 'POST',
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': key,
-        'X-Goog-FieldMask': SEARCH_FIELD_MASK,
-      },
-      body: JSON.stringify(body),
-    });
-
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = json?.error?.message || res.statusText || 'Search failed';
-      throw new Error(msg);
-    }
-
-    const places = Array.isArray(json.places) ? json.places : [];
-    for (const pl of places) {
-      const id = pl.id?.replace?.(/^places\//, '') || pl.id;
-      const lat = Number(pl.location?.latitude);
-      const lng = Number(pl.location?.longitude);
-      if (!id || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-      const name = pl.displayName?.text ?? textQuery;
-      const address = typeof pl.formattedAddress === 'string' ? pl.formattedAddress : '';
-      all.push({ id, name, address, latitude: lat, longitude: lng });
-    }
-
-    pageToken = json.nextPageToken ?? json.next_page_token;
-    if (!pageToken) break;
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-
-  const seen = new Set();
-  return all.filter((p) => {
-    if (seen.has(p.id)) return false;
-    seen.add(p.id);
-    return true;
-  });
-}
-
 async function searchChainBranchesNearby(chainTitle, location, radiusMeters, signal) {
   const key = getApiKey();
   if (!key) throw new Error('Server missing GOOGLE_PLACES_API_KEY');
@@ -223,21 +157,44 @@ async function searchChainBranchesNearby(chainTitle, location, radiusMeters, sig
 }
 
 export async function resolveBranchesForChain(chainTitle, location, radiusMeters, signal) {
-  let nearby = [];
-  try {
-    nearby = await searchChainBranchesNearby(chainTitle, location, radiusMeters, signal);
-  } catch {
-    nearby = [];
-  }
-  if (nearby.length > 0) return nearby;
+  const key = getApiKey();
+  if (!key) throw new Error('Server missing GOOGLE_PLACES_API_KEY');
 
-  const text = await searchNearbyBranches(chainTitle, location, radiusMeters, signal);
-  const named = text.filter((p) => placeNameMatchesChain(chainTitle, p.name));
-  if (radiusMeters > 50000) {
-    // For large radii, return all matching branches without distance filter
-    return named;
+  const radiusMetersForBias = Math.min(radiusMeters, 50000);
+
+  const body = {
+    textQuery: chainTitle.trim(),
+    maxResultCount: 20,
+    locationBias: {
+      circle: {
+        center: { latitude: location.latitude, longitude: location.longitude },
+        radius: radiusMetersForBias,
+      },
+    },
+  };
+
+  const res = await fetch(SEARCH_TEXT_URL, {
+    method: 'POST',
+    signal,
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key, 'X-Goog-FieldMask': SEARCH_FIELD_MASK },
+    body: JSON.stringify(body),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = json?.error?.message || res.statusText || 'Search failed';
+    throw new Error(msg);
   }
-  return named.filter(
-    (p) => haversineDistanceMeters(location, { latitude: p.latitude, longitude: p.longitude }) <= radiusMeters
-  );
+
+  const places = Array.isArray(json.places) ? json.places : [];
+  return places
+    .map((pl) => ({
+      id: pl.id?.replace?.(/^places\//, '') || pl.id,
+      name: pl.displayName?.text ?? chainTitle,
+      address: typeof pl.formattedAddress === 'string' ? pl.formattedAddress : '',
+      latitude: Number(pl.location?.latitude),
+      longitude: Number(pl.location?.longitude),
+    }))
+    .filter((p) => p.id && Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+    .filter((p) => placeNameMatchesChain(chainTitle, p.name));
 }

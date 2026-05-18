@@ -134,6 +134,7 @@ export function FoodDealsMap() {
   const searchAbortRef = useRef(null);
   const locationPinsRef = useRef([]);
   const [isMapReady, setIsMapReady] = useState(false);
+  const hasSyncedOnBoot = useRef(false);
   const [zoomLevel, setZoomLevel] = useState(10);
   
   const isZoomedIn = zoomLevel >= 15;
@@ -213,6 +214,79 @@ export function FoodDealsMap() {
       cancelled = true;
     };
   }, [centerOnCoordinate]);
+
+  // Background sync: On app bootup, use the saved chains as an array and fetch nearby pins for the current location
+  useEffect(() => {
+    if (!userLocation || deals.length === 0 || hasSyncedOnBoot.current) return;
+    hasSyncedOnBoot.current = true;
+
+    const syncSavedChains = async () => {
+      // 1. Build the "intermediary array" of unique chains from your existing saved deals
+      const chainsToFetch = {};
+      deals.forEach(d => {
+        if (!chainsToFetch[d.chainKey]) {
+          chainsToFetch[d.chainKey] = {
+            name: d.businessName,
+            chainKey: d.chainKey,
+            category: d.category,
+            dealDescription: d.dealDescription,
+          };
+        }
+      });
+
+      const chainsList = Object.values(chainsToFetch);
+      if (chainsList.length === 0) return;
+
+      // 2. Re-use your exact same searching logic, but for the current location
+      const searchRadiusM = milesToMeters(BRANCH_SEARCH_RADIUS_MILES);
+      let newlyDiscoveredDeals = [];
+
+      for (const chain of chainsList) {
+        try {
+          const branches = await resolveBranchesForChain(chain.name, userLocation, searchRadiusM);
+          const freshPins = branches.map(b => ({
+            id: b.id,
+            googlePlaceId: b.id,
+            businessName: b.name,
+            address: b.address,
+            latitude: b.latitude,
+            longitude: b.longitude,
+            dealDescription: chain.dealDescription,
+            category: chain.category,
+            chainKey: chain.chainKey,
+          }));
+          newlyDiscoveredDeals.push(...freshPins);
+        } catch (e) {
+          console.warn(`Background sync failed for ${chain.name}:`, e);
+        }
+      }
+
+      // 3. Merge any newly found local pins into the deals array
+      if (newlyDiscoveredDeals.length > 0) {
+        setDeals(prevDeals => {
+          const merged = [...prevDeals];
+          const existingIds = new Set(merged.map(d => d.id));
+          let didAdd = false;
+
+          for (const newDeal of newlyDiscoveredDeals) {
+            if (!existingIds.has(newDeal.id)) {
+              merged.push(newDeal);
+              existingIds.add(newDeal.id);
+              didAdd = true;
+            }
+          }
+
+          if (didAdd) {
+            persistDeals(merged).catch(() => {});
+            return merged;
+          }
+          return prevDeals;
+        });
+      }
+    };
+
+    syncSavedChains();
+  }, [userLocation, deals]);
 
   useEffect(() => {
     if (!isMapReady || !webViewRef.current) return;
