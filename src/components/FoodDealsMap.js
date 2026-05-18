@@ -1,11 +1,11 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Dimensions, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRANCH_SEARCH_RADIUS_MILES, VISIBLE_DEALS_RADIUS_MILES } from '../constants/discovery';
 import { getCachedBranchesForArea, saveBranchesCache } from '../data/chainLocationsCache';
-import { DEFAULT_MAP_CENTER, isValidDealCategory } from '../data/foodDealsDatabase';
+import { DEFAULT_MAP_CENTER, isValidDealCategory, DEAL_CATEGORIES } from '../data/foodDealsDatabase';
 import { loadDeals, persistDeals } from '../data/dealsRepository';
 import { DealComposeModal } from './DealComposeModal';
 import { DealDetailBottomSheet } from './DealDetailBottomSheet';
@@ -155,6 +155,11 @@ export function FoodDealsMap() {
   // Loyalty program feature
   const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
+
+  // Edit deal state
+  const [editingChain, setEditingChain] = useState(null);
+  const [editDealDesc, setEditDealDesc] = useState('');
+  const [editCategory, setEditCategory] = useState('');
 
   const centerOnCoordinate = useCallback((latitude, longitude, zoomLevel = 15) => {
     webViewRef.current?.injectJavaScript(`
@@ -354,10 +359,15 @@ export function FoodDealsMap() {
     const chains = {};
     deals.forEach((deal) => {
       if (!chains[deal.chainKey]) {
-        chains[deal.chainKey] = deal.businessName;
+        chains[deal.chainKey] = {
+          key: deal.chainKey,
+          name: deal.businessName,
+          category: deal.category,
+          description: deal.dealDescription,
+        };
       }
     });
-    return Object.entries(chains).map(([key, name]) => ({ key, name }));
+    return Object.values(chains);
   }, [deals]);
 
   const handleDeleteChain = useCallback(async (chainKey) => {
@@ -369,6 +379,29 @@ export function FoodDealsMap() {
       Alert.alert('Save failed', 'Could not write to device storage.');
     }
   }, [deals]);
+
+  const handleEditChain = useCallback((chain) => {
+    setEditDealDesc(chain.description || '');
+    setEditCategory(chain.category || DEAL_CATEGORIES[0]);
+    setEditingChain(chain);
+  }, []);
+
+  const saveEditChain = useCallback(async () => {
+    if (!editingChain || !editDealDesc.trim()) {
+      Alert.alert('Deal text', 'Enter a short description for this deal.');
+      return;
+    }
+    const nextDeals = deals.map(d => {
+      return d.chainKey === editingChain.key ? { ...d, dealDescription: editDealDesc.trim(), category: editCategory } : d;
+    });
+    setDeals(nextDeals);
+    setEditingChain(null);
+    try {
+      await persistDeals(nextDeals);
+    } catch {
+      Alert.alert('Save failed', 'Could not write to device storage.');
+    }
+  }, [deals, editingChain, editDealDesc, editCategory]);
 
   const handleRestaurantPicked = useCallback(
     async (placeItem) => {
@@ -598,6 +631,7 @@ export function FoodDealsMap() {
         <View style={styles.drawerRoot}>
           <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerVisible(false)} />
           <View style={styles.drawer}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
             <Text style={styles.drawerTitle}>Menu</Text>
 
             {/* Loyalty Program Section */}
@@ -620,13 +654,19 @@ export function FoodDealsMap() {
                 {activeChains.map((chain) => (
                   <View key={chain.key} style={styles.chainItem}>
                     <Text style={styles.chainName}>{chain.name}</Text>
-                    <Pressable onPress={() => handleDeleteChain(chain.key)} style={styles.deleteButton}>
-                      <Text style={styles.deleteIcon}>✕</Text>
-                    </Pressable>
+                      <View style={styles.chainActions}>
+                        <Pressable onPress={() => handleEditChain(chain)} style={styles.editButton}>
+                          <Text style={styles.editIcon}>✎</Text>
+                        </Pressable>
+                        <Pressable onPress={() => handleDeleteChain(chain.key)} style={styles.deleteButton}>
+                          <Text style={styles.deleteIcon}>✕</Text>
+                        </Pressable>
+                      </View>
                   </View>
                 ))}
               </View>
             )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -636,6 +676,43 @@ export function FoodDealsMap() {
         onClose={() => setLoyaltyModalVisible(false)}
         onSelectProgram={handleSelectLoyaltyProgram}
       />
+
+      <Modal visible={!!editingChain} animationType="slide" transparent onRequestClose={() => setEditingChain(null)}>
+        <KeyboardAvoidingView style={styles.modalRoot} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <Pressable style={styles.backdrop} onPress={() => setEditingChain(null)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: 440 }]}>
+            <View style={styles.handle} />
+            <Text style={styles.title}>Edit {editingChain?.name}</Text>
+            
+            <Text style={styles.label}>Deal description</Text>
+            <TextInput
+              value={editDealDesc}
+              onChangeText={setEditDealDesc}
+              placeholder="e.g. $5 fill-up box"
+              placeholderTextColor="rgba(148,163,184,0.75)"
+              style={[styles.input, styles.inputMultiline]}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.categoryRow}>
+              {DEAL_CATEGORIES.map((c) => {
+                const active = editCategory === c;
+                return (
+                  <Pressable key={c} onPress={() => setEditCategory(c)} style={[styles.chip, active && styles.chipActive]}>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{c}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable style={styles.primaryBtn} onPress={saveEditChain}>
+              <Text style={styles.primaryLabel}>Save Changes</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -775,5 +852,110 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '300',
     marginTop: -2,
+  },
+  chainActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  editButton: {
+    padding: 5,
+  },
+  editIcon: {
+    color: '#38BDF8',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5, 6, 10, 0.55)',
+  },
+  sheet: {
+    backgroundColor: '#0F1118',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    marginBottom: 12,
+  },
+  title: {
+    color: '#F8FAFC',
+    fontSize: 19,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  label: {
+    color: 'rgba(226,232,240,0.85)',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#F8FAFC',
+    fontSize: 16,
+  },
+  inputMultiline: {
+    minHeight: 88,
+    paddingTop: 12,
+    marginBottom: 14,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 20,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  chipActive: {
+    backgroundColor: '#FF6B35',
+    borderColor: '#FF8F66',
+  },
+  chipText: {
+    color: 'rgba(248,250,252,0.9)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: '#0B0D12',
+  },
+  primaryBtn: {
+    backgroundColor: '#22C55E',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  primaryLabel: {
+    color: '#052E16',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 });
