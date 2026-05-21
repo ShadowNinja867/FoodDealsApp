@@ -103,8 +103,10 @@ export async function resolveBranchesForChain(chainTitle, location, radiusMeters
     (
       nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["amenity"]["name"~"${safeChain}",i];
       nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["amenity"]["brand"~"${safeChain}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["amenity"]["operator"~"${safeChain}",i];
       nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["shop"]["name"~"${safeChain}",i];
       nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["shop"]["brand"~"${safeChain}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["shop"]["operator"~"${safeChain}",i];
     );
     out center qt;
   `;

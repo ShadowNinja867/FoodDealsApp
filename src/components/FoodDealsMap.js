@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BRANCH_SEARCH_RADIUS_MILES, VISIBLE_DEALS_RADIUS_MILES } from '../constants/discovery';
@@ -157,6 +157,10 @@ export function FoodDealsMap() {
   const [editDealDesc, setEditDealDesc] = useState('');
   const [editCategory, setEditCategory] = useState('');
 
+  // Loyalty Program Loading
+  const [loyaltyLoading, setLoyaltyLoading] = useState(false);
+  const [loyaltyLoadingName, setLoyaltyLoadingName] = useState('');
+
   const centerOnCoordinate = useCallback((latitude, longitude, zoomLevel = 15) => {
     webViewRef.current?.injectJavaScript(`
       if (typeof map !== 'undefined') { map.setView([${latitude}, ${longitude}], ${zoomLevel}); }
@@ -263,7 +267,7 @@ export function FoodDealsMap() {
         try {
           const branches = await resolveBranchesForChain(chain.name, userLocation, searchRadiusM);
           const freshPins = branches.map(b => ({
-            id: b.id,
+            id: `${b.id}_${chain.chainKey}`,
             googlePlaceId: b.id,
             businessName: b.name,
             address: b.address,
@@ -368,30 +372,96 @@ export function FoodDealsMap() {
     locationPinsRef.current = locationPins;
   }, [locationPins]);
 
-  const activeChains = useMemo(() => {
+  const { individualChains, activePrograms } = useMemo(() => {
     const chains = {};
+    const programs = {};
     deals.forEach((deal) => {
-      if (!chains[deal.chainKey]) {
-        chains[deal.chainKey] = {
-          key: deal.chainKey,
-          name: deal.chainName || deal.businessName.split(/, | - /)[0].trim(),
-          category: deal.category,
-          description: deal.dealDescription,
+      if (deal.programId) {
+        programs[deal.programId] = {
+          id: deal.programId,
+          name: deal.programName,
         };
+      } else {
+        if (!chains[deal.chainKey]) {
+          chains[deal.chainKey] = {
+            key: deal.chainKey,
+            name: deal.chainName || deal.businessName.split(/, | - /)[0].trim(),
+            category: deal.category,
+            description: deal.dealDescription,
+          };
+        }
       }
     });
-    return Object.values(chains);
+    return {
+      individualChains: Object.values(chains),
+      activePrograms: Object.values(programs),
+    };
   }, [deals]);
 
-  const handleDeleteChain = useCallback(async (chainKey) => {
-    const next = deals.filter((d) => d.chainKey !== chainKey);
-    setDeals(next);
-    try {
-      await persistDeals(next);
-    } catch {
-      Alert.alert('Save failed', 'Could not write to device storage.');
-    }
+  const handleDeleteChain = useCallback((chainKey) => {
+    Alert.alert(
+      'Delete Restaurant',
+      'Are you sure you want to remove this restaurant and all of its pins?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            // Only delete manually added deals, preserve loyalty deals with the same chainKey
+            const next = deals.filter((d) => d.programId ? true : d.chainKey !== chainKey);
+            setDeals(next);
+            try {
+              await persistDeals(next);
+            } catch {
+              Alert.alert('Save failed', 'Could not write to device storage.');
+            }
+          },
+        },
+      ]
+    );
   }, [deals]);
+
+  const handleDeleteProgram = useCallback((programId, programName) => {
+    Alert.alert(
+      'Remove Loyalty Program',
+      `Are you sure you want to remove all deals for ${programName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const next = deals.filter((d) => d.programId !== programId);
+            setDeals(next);
+            try {
+              await persistDeals(next);
+            } catch {
+              Alert.alert('Save failed', 'Could not write to device storage.');
+            }
+          },
+        },
+      ]
+    );
+  }, [deals]);
+
+  const handleClearAllDeals = useCallback(() => {
+    Alert.alert(
+      'Clear All',
+      'Are you sure you want to completely clear out all saved restaurants and pins? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            setDeals([]);
+            persistDeals([]).catch(() => Alert.alert('Save failed', 'Could not write to device storage.'));
+          },
+        },
+      ]
+    );
+  }, []);
 
   const handleEditChain = useCallback((chain) => {
     setEditDealDesc(chain.description || '');
@@ -474,7 +544,7 @@ export function FoodDealsMap() {
           const branches = await resolveBranchesForChain(savedChainName, userLocation, radiusM);
           if (branches.length > 0) {
             const freshDeals = branches.map((b) => ({
-              id: b.id,
+              id: `${b.id}_${chainKey}`,
               googlePlaceId: b.id,
               businessName: b.name,
               address: b.address,
@@ -532,6 +602,11 @@ export function FoodDealsMap() {
         return;
       }
 
+      setLoyaltyLoading(true);
+      setLoyaltyLoadingName(program.name);
+      // Allow UI to render the loading screen
+      await new Promise(r => setTimeout(r, 50));
+
       const newDeals = [];
       const searchRadiusM = milesToMeters(VISIBLE_DEALS_RADIUS_MILES);
 
@@ -559,7 +634,7 @@ export function FoodDealsMap() {
             continue;
           }
           const partnerDeals = branches.map((b) => ({
-            id: b.id,
+            id: `${b.id}_${program.id}_${partner.chainKey}`,
             googlePlaceId: b.id,
             businessName: b.name,
             address: b.address,
@@ -569,12 +644,17 @@ export function FoodDealsMap() {
             category: partner.category,
             chainKey: partner.chainKey,
             chainName: partner.businessName,
+            programId: program.id,
+            programName: program.name,
           }));
           newDeals.push(...partnerDeals);
         } catch (e) {
           console.error(`Error adding ${partner.businessName}:`, e);
         }
       }
+
+      setLoyaltyLoading(false);
+      setLoyaltyLoadingName('');
 
       if (newDeals.length > 0) {
         const next = [...deals, ...newDeals];
@@ -647,6 +727,16 @@ export function FoodDealsMap() {
         }}
       />
 
+      {loyaltyLoading && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color="#FF6B35" />
+            <Text style={styles.loadingCardText}>Adding deals from {loyaltyLoadingName}...</Text>
+            <Text style={styles.loadingCardSub}>This may take a minute</Text>
+          </View>
+        </View>
+      )}
+
       <Modal visible={drawerVisible} animationType="slide" transparent onRequestClose={() => setDrawerVisible(false)}>
         <View style={styles.drawerRoot}>
           <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerVisible(false)} />
@@ -667,11 +757,11 @@ export function FoodDealsMap() {
               </Pressable>
             </View>
 
-            {/* Active Restaurants */}
-            {activeChains.length > 0 && (
+            {/* Individual Restaurants */}
+            {individualChains.length > 0 && (
               <View style={styles.restaurantSection}>
                 <Text style={styles.restaurantSectionTitle}>Your Restaurants</Text>
-                {activeChains.map((chain) => (
+                {individualChains.map((chain) => (
                   <View key={chain.key} style={styles.chainItem}>
                     <Text style={styles.chainName}>{chain.name}</Text>
                       <View style={styles.chainActions}>
@@ -686,6 +776,27 @@ export function FoodDealsMap() {
                 ))}
               </View>
             )}
+
+            {/* Loyalty Programs */}
+            {activePrograms.length > 0 && (
+              <View style={styles.restaurantSection}>
+                <Text style={styles.restaurantSectionTitle}>Your Loyalty Programs</Text>
+                {activePrograms.map((prog) => (
+                  <View key={prog.id} style={styles.chainItem}>
+                    <Text style={styles.chainName}>{prog.name}</Text>
+                      <View style={styles.chainActions}>
+                        <Pressable onPress={() => handleDeleteProgram(prog.id, prog.name)} style={styles.deleteButton}>
+                          <Text style={styles.deleteIcon}>✕</Text>
+                        </Pressable>
+                      </View>
+                  </View>
+                ))}
+              </View>
+            )}
+            
+            <Pressable onPress={handleClearAllDeals} style={styles.clearAllButton}>
+              <Text style={styles.clearAllButtonText}>Clear All Deals</Text>
+            </Pressable>
             </ScrollView>
           </View>
         </View>
@@ -849,6 +960,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  clearAllButton: {
+    marginTop: 20,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  clearAllButtonText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   fab: {
     position: 'absolute',
     right: 20,
@@ -977,5 +1102,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.3,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5, 6, 10, 0.75)',
+    zIndex: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingCard: {
+    backgroundColor: '#0F1118',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  loadingCardText: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  loadingCardSub: {
+    color: 'rgba(148,163,184,0.9)',
+    fontSize: 13,
+    marginTop: 6,
   },
 });

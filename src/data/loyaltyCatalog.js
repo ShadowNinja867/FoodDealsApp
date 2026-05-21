@@ -17,8 +17,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Mains',
       },
       {
-        chainKey: 'pizza-hut-delivery',
-        businessName: 'Pizza Hut Delivery',
+        chainKey: 'pizza-hut',
+        businessName: 'Pizza Hut',
         dealDescription: '50% off pizza delivery (Mon-Sun)',
         category: 'Mains',
       },
@@ -160,7 +160,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'greene-king',
-        businessName: 'Greene King Pubs',
+        businessName: 'Greene King',
         dealDescription: '25% off total bill (Mon-Thu)',
         category: 'Mains',
       },
@@ -319,7 +319,7 @@ export const LOYALTY_PROGRAMS = [
     partners: [
       {
         chainKey: 'mcdonalds',
-        businessName: 'McDonalds',
+        businessName: "McDonald's",
         dealDescription: '£2.99 Big Mac And Fries Voucher',
         category: 'Mains',
       },
@@ -337,25 +337,25 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'yo-sushi',
-        businessName: 'Yo Sushi',
+        businessName: 'YO! Sushi',
         dealDescription: '£5 Voucher',
         category: 'Mains',
       },
       {
-        chainKey: 'krispykreme',
-        businessName: 'KrispyKreme',
+        chainKey: 'krispy-kreme',
+        businessName: 'Krispy Kreme',
         dealDescription: 'Free Doughnut',
         category: 'Dessert',
       },
       {
-        chainKey: 'krispykreme-dozen',
-        businessName: 'KrispyKreme',
+        chainKey: 'krispy-kreme-dozen',
+        businessName: 'Krispy Kreme',
         dealDescription: 'Free Original Glazed Dozen',
         category: 'Dessert',
       },
       {
-        chainKey: 'frankie-and-bennys',
-        businessName: 'Frankie And Bennys',
+        chainKey: 'frankie-bennys',
+        businessName: "Frankie & Benny's",
         dealDescription: 'Free Main Course',
         category: 'Mains',
       },
@@ -366,8 +366,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Dessert',
       },
       {
-        chainKey: 'tacobell',
-        businessName: 'Tacobell',
+        chainKey: 'taco-bell',
+        businessName: 'Taco Bell',
         dealDescription: 'Free Crunchy Taco',
         category: 'Mains',
       },
@@ -403,7 +403,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'coco-di-mama',
-        businessName: 'Coco Di Mama',
+        businessName: 'Coco di Mama',
         dealDescription: 'Free Coffee / £5 Voucher',
         category: 'Drinks',
       },
@@ -415,7 +415,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'caffe-nero',
-        businessName: 'Caffe Nero',
+        businessName: 'Caffè Nero',
         dealDescription: 'Free Drink / Any Drink For £1',
         category: 'Drinks',
       },
@@ -426,8 +426,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Dessert',
       },
       {
-        chainKey: 'wagamamas',
-        businessName: 'Wagamamas',
+        chainKey: 'wagamama',
+        businessName: 'Wagamama',
         dealDescription: "Free Edamame Or 'Prawn' Crackers",
         category: 'Mains',
       },
@@ -456,8 +456,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Mains',
       },
       {
-        chainKey: 'bananatree',
-        businessName: 'BananaTree',
+        chainKey: 'banana-tree',
+        businessName: 'Banana Tree',
         dealDescription: '£10 Off Voucher',
         category: 'Mains',
       },
@@ -504,8 +504,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Dessert',
       },
       {
-        chainKey: 'costa',
-        businessName: 'Costa',
+        chainKey: 'costa-coffee',
+        businessName: 'Costa Coffee',
         dealDescription: 'Free Cake Slice',
         category: 'Dessert',
       },
@@ -528,7 +528,7 @@ export const LOYALTY_PROGRAMS = [
         category: 'Mains',
       },
       {
-        chainKey: 'coffee-1',
+        chainKey: 'coffee1',
         businessName: 'Coffee#1',
         dealDescription: '15% Off Voucher / Free Drink',
         category: 'Drinks',
@@ -540,8 +540,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Mains',
       },
       {
-        chainKey: 'pizza-express',
-        businessName: 'Pizza Express',
+        chainKey: 'pizzaexpress',
+        businessName: 'PizzaExpress',
         dealDescription: 'Free Dough Balls',
         category: 'Mains',
       },
@@ -667,7 +667,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'bills',
-        businessName: 'Bills',
+        businessName: "Bill's",
         dealDescription: '20% Off & Bottle Of Prosecco Or Pancakes',
         category: 'Mains',
       },
@@ -684,8 +684,8 @@ export const LOYALTY_PROGRAMS = [
         category: 'Mains',
       },
       {
-        chainKey: 'gdk',
-        businessName: 'GDK',
+        chainKey: 'german-doner-kebab',
+        businessName: 'German Doner Kebab',
         dealDescription: '£5 Doner Box',
         category: 'Mains',
       },
@@ -853,7 +853,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'yo-sushi',
-        businessName: 'YO!',
+        businessName: 'YO! Sushi',
         dealDescription: '25% off your total bill',
         category: 'Mains',
       },
