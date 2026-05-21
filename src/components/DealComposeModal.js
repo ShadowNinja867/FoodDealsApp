@@ -14,19 +14,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DEAL_CATEGORIES } from '../data/foodDealsDatabase';
-import { BRANCH_SEARCH_RADIUS_MILES } from '../constants/discovery';
 
 /**
  * @param {{
  *   visible: boolean,
  *   chainName: string,
- *   branchCount: number,
- *   loading: boolean,
  *   onClose: () => void,
  *   onConfirm: (payload: { dealDescription: string, category: string }) => void,
  * }} props
  */
-export function DealComposeModal({ visible, chainName, branchCount, loading, onClose, onConfirm }) {
+export function DealComposeModal({ visible, chainName, onClose, onConfirm }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const maxSheet = Math.min(height * 0.55, 440);
@@ -61,49 +58,39 @@ export function DealComposeModal({ visible, chainName, branchCount, loading, onC
           <View style={styles.handle} />
           <Text style={styles.title}>Deal for {chainName || 'restaurant'}</Text>
           <Text style={styles.helper}>
-            We found {branchCount} Google Maps location{branchCount === 1 ? '' : 's'} within {BRANCH_SEARCH_RADIUS_MILES}{' '}
-            miles of you. This deal applies to each pin.
+            We will save this deal and automatically show pins on the map whenever you are near a {chainName || 'restaurant'}!
           </Text>
 
-          {loading ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="large" color="#FF6B35" />
-              <Text style={styles.loadingText}>Loading locations…</Text>
-            </View>
-          ) : (
-            <>
-              <Text style={styles.label}>Deal description</Text>
-              <TextInput
-                value={dealDescription}
-                onChangeText={setDealDescription}
-                placeholder="e.g. $5 fill-up box"
-                placeholderTextColor="rgba(148,163,184,0.75)"
-                style={[styles.input, styles.inputMultiline]}
-                multiline
-                textAlignVertical="top"
-              />
+          <Text style={styles.label}>Deal description</Text>
+          <TextInput
+            value={dealDescription}
+            onChangeText={setDealDescription}
+            placeholder="e.g. $5 fill-up box"
+            placeholderTextColor="rgba(148,163,184,0.75)"
+            style={[styles.input, styles.inputMultiline]}
+            multiline
+            textAlignVertical="top"
+          />
 
-              <Text style={styles.label}>Category</Text>
-              <View style={styles.categoryRow}>
-                {DEAL_CATEGORIES.map((c) => {
-                  const active = category === c;
-                  return (
-                    <Pressable
-                      key={c}
-                      onPress={() => setCategory(c)}
-                      style={[styles.chip, active && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{c}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+          <Text style={styles.label}>Category</Text>
+          <View style={styles.categoryRow}>
+            {DEAL_CATEGORIES.map((c) => {
+              const active = category === c;
+              return (
+                <Pressable
+                  key={c}
+                  onPress={() => setCategory(c)}
+                  style={[styles.chip, active && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{c}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-              <Pressable style={styles.primaryBtn} onPress={save}>
-                <Text style={styles.primaryLabel}>Add pins to map</Text>
-              </Pressable>
-            </>
-          )}
+          <Pressable style={styles.primaryBtn} onPress={save}>
+            <Text style={styles.primaryLabel}>Save deal</Text>
+          </Pressable>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -206,14 +193,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.3,
-  },
-  loadingBox: {
-    paddingVertical: 28,
-    alignItems: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    color: 'rgba(226,232,240,0.8)',
-    fontSize: 14,
   },
 });

@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { matchPopularChains } from '../data/popularChains';
-import { autocompleteRestaurants, hasPlacesApiKey } from '../services/googlePlaces';
+import { autocompleteRestaurants } from '../services/googlePlaces';
 
 const DEBOUNCE_MS = 120;
 
@@ -56,7 +56,7 @@ export function RestaurantSearchModal({ visible, onClose, userLocation, onPick }
 
   const runGoogle = useCallback(
     async (text) => {
-      if (!hasPlacesApiKey() || !userLocation) {
+      if (!userLocation) {
         setGoogleRows([]);
         setLoading(false);
         return;
@@ -102,17 +102,17 @@ export function RestaurantSearchModal({ visible, onClose, userLocation, onPick }
   const displayRows = useMemo(() => {
     const seen = new Set();
     const out = [];
-    for (const g of googleRows) {
-      const k = g.title.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push({ ...g, source: 'google' });
-    }
     for (const l of localRows) {
       const k = l.title.toLowerCase();
       if (seen.has(k)) continue;
       seen.add(k);
       out.push({ ...l, source: 'local' });
+    }
+    for (const g of googleRows) {
+      const k = g.title.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ ...g, source: 'google' });
     }
     return out;
   }, [googleRows, localRows]);
@@ -144,17 +144,6 @@ export function RestaurantSearchModal({ visible, onClose, userLocation, onPick }
         <Text style={styles.hint}>
           Type to see matches. Tap a name, then describe the deal on the next screen.
         </Text>
-
-        {!hasPlacesApiKey() && (
-          <View style={styles.apiNotice}>
-            <Text style={styles.apiNoticeTitle}>Food Deals API</Text>
-            <Text style={styles.apiNoticeBody}>
-              Restaurant search runs on your backend (one Google key for all users). Set EXPO_PUBLIC_API_BASE_URL
-              or local.keys.json → apiBaseUrl, start the server in /server, then restart Expo (npx expo start
-              --clear). See server/README.txt.
-            </Text>
-          </View>
-        )}
 
         <View style={styles.searchWrap}>
           <TextInput
@@ -231,25 +220,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 14,
-  },
-  apiNotice: {
-    backgroundColor: 'rgba(56,189,248,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(56,189,248,0.35)',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 14,
-  },
-  apiNoticeTitle: {
-    color: '#F8FAFC',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  apiNoticeBody: {
-    color: 'rgba(226,232,240,0.88)',
-    fontSize: 13,
-    lineHeight: 19,
   },
   searchWrap: {
     position: 'relative',

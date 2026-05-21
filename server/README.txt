@@ -1,6 +1,7 @@
-# Food Deals API (one key for all app users)
+# Food Deals API
 
-Set on the server only (never in the Expo app):
+This server uses OpenStreetMap (100% free). No API keys or credit cards required!
+Create a .env file with your port if you want to change it:
 
 ```
 GOOGLE_PLACES_API_KEY=AIza...

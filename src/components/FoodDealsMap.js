@@ -12,7 +12,7 @@ import { DealDetailBottomSheet } from './DealDetailBottomSheet';
 import { LoyaltyProgramModal } from './LoyaltyProgramModal';
 import { ALL_KEY, RestaurantSearchHeader } from './RestaurantSearchHeader';
 import { RestaurantSearchModal } from './RestaurantSearchModal';
-import { hasPlacesApiKey, resolveBranchesForChain } from '../services/googlePlaces';
+import { resolveBranchesForChain } from '../services/googlePlaces';
 import { haversineDistanceMiles, milesToMeters } from '../utils/geo';
 
 // Leaflet HTML Template injected directly into the WebView
@@ -131,10 +131,9 @@ function buildPinDisplayLines(pin) {
 export function FoodDealsMap() {
   const webViewRef = useRef(null);
   const insets = useSafeAreaInsets();
-  const searchAbortRef = useRef(null);
   const locationPinsRef = useRef([]);
   const [isMapReady, setIsMapReady] = useState(false);
-  const hasSyncedOnBoot = useRef(false);
+  const lastSyncLocationRef = useRef(null);
   const [zoomLevel, setZoomLevel] = useState(10);
   
   const isZoomedIn = zoomLevel >= 15;
@@ -148,9 +147,6 @@ export function FoodDealsMap() {
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChainName, setComposeChainName] = useState('');
-  const [composeBranchCount, setComposeBranchCount] = useState(0);
-  const [composeLoading, setComposeLoading] = useState(false);
-  const [pendingBranches, setPendingBranches] = useState([]);
 
   // Loyalty program feature
   const [loyaltyModalVisible, setLoyaltyModalVisible] = useState(false);
@@ -222,16 +218,33 @@ export function FoodDealsMap() {
 
   // Background sync: On app bootup, use the saved chains as an array and fetch nearby pins for the current location
   useEffect(() => {
-    if (!userLocation || deals.length === 0 || hasSyncedOnBoot.current) return;
-    hasSyncedOnBoot.current = true;
+    if (!userLocation || deals.length === 0) return;
+
+    if (lastSyncLocationRef.current) {
+      const dist = haversineDistanceMiles(userLocation, lastSyncLocationRef.current);
+      if (dist < 2.5) return; // Only sync again if you traveled more than 2.5 miles
+    }
+    lastSyncLocationRef.current = userLocation;
 
     const syncSavedChains = async () => {
-      // 1. Build the "intermediary array" of unique chains from your existing saved deals
+      // 0. Find chains that ALREADY have pins near us so we don't waste API quota!
+      const nearbyChainKeys = new Set();
+      deals.forEach(d => {
+        const dist = haversineDistanceMiles(userLocation, { latitude: d.latitude, longitude: d.longitude });
+        if (dist <= VISIBLE_DEALS_RADIUS_MILES) {
+          nearbyChainKeys.add(d.chainKey);
+        }
+      });
+
+      // 1. Build the "intermediary array" of unique chains that are MISSING local pins
       const chainsToFetch = {};
       deals.forEach(d => {
+        if (nearbyChainKeys.has(d.chainKey)) return; // Skip! We already have pins here.
+        
         if (!chainsToFetch[d.chainKey]) {
+          const cleanName = d.chainName || d.businessName.split(/, | - /)[0].trim();
           chainsToFetch[d.chainKey] = {
-            name: d.businessName,
+            name: cleanName,
             chainKey: d.chainKey,
             category: d.category,
             dealDescription: d.dealDescription,
@@ -243,7 +256,7 @@ export function FoodDealsMap() {
       if (chainsList.length === 0) return;
 
       // 2. Re-use your exact same searching logic, but for the current location
-      const searchRadiusM = milesToMeters(BRANCH_SEARCH_RADIUS_MILES);
+      const searchRadiusM = milesToMeters(VISIBLE_DEALS_RADIUS_MILES);
       let newlyDiscoveredDeals = [];
 
       for (const chain of chainsList) {
@@ -361,7 +374,7 @@ export function FoodDealsMap() {
       if (!chains[deal.chainKey]) {
         chains[deal.chainKey] = {
           key: deal.chainKey,
-          name: deal.businessName,
+          name: deal.chainName || deal.businessName.split(/, | - /)[0].trim(),
           category: deal.category,
           description: deal.dealDescription,
         };
@@ -405,7 +418,6 @@ export function FoodDealsMap() {
 
   const handleRestaurantPicked = useCallback(
     async (placeItem) => {
-      const chainKey = slugChain(placeItem.title);
       setComposeChainName(placeItem.title);
       setSearchModalVisible(false);
 
@@ -414,52 +426,36 @@ export function FoodDealsMap() {
         return;
       }
 
-      setComposeLoading(true);
-      const searchRadiusM = milesToMeters(BRANCH_SEARCH_RADIUS_MILES);
-      const ac = new AbortController();
-      searchAbortRef.current = ac;
-
-      try {
-        let branches = await resolveBranchesForChain(placeItem.title, userLocation, searchRadiusM, ac.signal);
-        if (!ac.signal.aborted) {
-          setComposeBranchCount(branches.length || 0);
-          setPendingBranches(branches || []);
-          setComposeOpen(true);
-        }
-      } catch (e) {
-        if (e?.name !== 'AbortError') {
-          Alert.alert('Error', `Failed to find branches: ${e?.message || 'unknown error'}`);
-        }
-      } finally {
-        if (!ac.signal.aborted) {
-          setComposeLoading(false);
-        }
-      }
+      setComposeOpen(true);
     },
     [userLocation]
   );
 
   const handleComposeConfirm = useCallback(
     async (payload) => {
-      if (!userLocation || pendingBranches.length === 0) {
-        Alert.alert('Missing data', 'Location or branches missing.');
+      if (!userLocation) {
+        Alert.alert('Missing data', 'Location missing.');
         return;
       }
 
       const chainKey = slugChain(composeChainName);
-      const newDeals = pendingBranches.map((b) => ({
-        id: b.id,
-        googlePlaceId: b.id,
-        businessName: b.name,
-        address: b.address,
-        latitude: b.latitude,
-        longitude: b.longitude,
-        dealDescription: payload.dealDescription,
-        category: payload.category,
-        chainKey: chainKey,
-      }));
+      const savedChainName = composeChainName;
 
-      const next = [...deals, ...newDeals];
+      // Instantly save the global placeholder to your array
+      const newDeal = {
+          id: `global_${chainKey}_${Date.now()}`,
+          googlePlaceId: `global_${chainKey}`,
+          businessName: savedChainName,
+          address: '',
+          latitude: 0,
+          longitude: 0,
+          dealDescription: payload.dealDescription,
+          category: payload.category,
+          chainKey: chainKey,
+          chainName: savedChainName,
+      };
+
+      const next = [...deals, newDeal];
       setDeals(next);
       try {
         await persistDeals(next);
@@ -468,10 +464,48 @@ export function FoodDealsMap() {
       }
 
       setComposeOpen(false);
-      setPendingBranches([]);
       setComposeChainName('');
+
+      // --- SILENT BACKGROUND FETCH ---
+      // Fetch the actual pins in the background so they appear magically on the map without blocking you!
+      (async () => {
+        try {
+          const radiusM = milesToMeters(VISIBLE_DEALS_RADIUS_MILES);
+          const branches = await resolveBranchesForChain(savedChainName, userLocation, radiusM);
+          if (branches.length > 0) {
+            const freshDeals = branches.map((b) => ({
+              id: b.id,
+              googlePlaceId: b.id,
+              businessName: b.name,
+              address: b.address,
+              latitude: b.latitude,
+              longitude: b.longitude,
+              dealDescription: payload.dealDescription,
+              category: payload.category,
+              chainKey: chainKey,
+              chainName: savedChainName,
+            }));
+            setDeals((prev) => {
+              const merged = [...prev];
+              const existingIds = new Set(merged.map((d) => d.id));
+              let didAdd = false;
+              for (const nd of freshDeals) {
+                if (!existingIds.has(nd.id)) {
+                  merged.push(nd);
+                  existingIds.add(nd.id);
+                  didAdd = true;
+                }
+              }
+              if (didAdd) persistDeals(merged).catch(() => {});
+              return merged;
+            });
+          }
+        } catch (e) {
+          console.warn('Silent fetch failed', e);
+        }
+      })();
     },
-    [userLocation, pendingBranches, composeChainName, deals]
+    [userLocation, composeChainName, deals]
   );
 
   const barSubtitle = useMemo(() => {
@@ -498,16 +532,8 @@ export function FoodDealsMap() {
         return;
       }
 
-      if (!hasPlacesApiKey()) {
-        Alert.alert(
-          'Food Deals API',
-          'This app talks to your Food Deals API server (one Google key on the server for everyone). Set EXPO_PUBLIC_API_BASE_URL to that server URL, or add apiBaseUrl to local.keys.json — see server/README.txt. Then restart Expo with: npx expo start --clear'
-        );
-        return;
-      }
-
       const newDeals = [];
-      const searchRadiusM = milesToMeters(BRANCH_SEARCH_RADIUS_MILES);
+      const searchRadiusM = milesToMeters(VISIBLE_DEALS_RADIUS_MILES);
 
       for (const partner of program.partners) {
         const chainSlug = slugChain(partner.businessName);
@@ -539,9 +565,10 @@ export function FoodDealsMap() {
             address: b.address,
             latitude: b.latitude,
             longitude: b.longitude,
-            dealDescription: partner.dealDescription,
+            dealDescription: `${partner.dealDescription} (${program.name})`,
             category: partner.category,
             chainKey: partner.chainKey,
+            chainName: partner.businessName,
           }));
           newDeals.push(...partnerDeals);
         } catch (e) {
@@ -607,14 +634,7 @@ export function FoodDealsMap() {
       <DealComposeModal
         visible={composeOpen}
         chainName={composeChainName}
-        branchCount={composeBranchCount}
-        loading={composeLoading}
-        onClose={() => {
-          searchAbortRef.current?.abort();
-          setComposeOpen(false);
-          setPendingBranches([]);
-          setComposeLoading(false);
-        }}
+        onClose={() => setComposeOpen(false)}
         onConfirm={handleComposeConfirm}
       />
 

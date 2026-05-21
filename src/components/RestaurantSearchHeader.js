@@ -1,7 +1,6 @@
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DEAL_CATEGORIES } from '../data/foodDealsDatabase';
-import { hasPlacesApiKey } from '../services/googlePlaces';
 
 const ALL_KEY = 'All';
 const FILTER_CHIPS = [ALL_KEY, ...DEAL_CATEGORIES];
@@ -15,11 +14,7 @@ const FILTER_CHIPS = [ALL_KEY, ...DEAL_CATEGORIES];
  */
 export function RestaurantSearchHeader({ selectedCategory, onSelectCategory, subtitle }) {
   const insets = useSafeAreaInsets();
-  const hint =
-    subtitle ??
-    (hasPlacesApiKey()
-      ? 'Tap + to search a chain, pick a name, then describe the deal. Or use the menu (☰) to add loyalty programs.'
-      : 'Set EXPO_PUBLIC_API_BASE_URL to your Food Deals API (see server/README.txt), then restart Expo.');
+  const hint = subtitle ?? 'Tap + to search a chain, pick a name, then describe the deal. Or use the menu (☰) to add loyalty programs.';
 
   return (
     <View style={[styles.wrapper, { top: insets.top + 60 }]} pointerEvents="box-none">

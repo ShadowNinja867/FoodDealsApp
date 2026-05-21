@@ -6,10 +6,6 @@ import { autocompleteRestaurants, resolveBranchesForChain } from './placesServic
 
 const PORT = Number(process.env.PORT) || 3000;
 
-if (!process.env.GOOGLE_PLACES_API_KEY?.trim()) {
-  console.warn('[fooddeals-api] WARNING: GOOGLE_PLACES_API_KEY is not set. Places routes will fail.');
-}
-
 const app = express();
 app.use(
   cors({
