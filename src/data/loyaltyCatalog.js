@@ -12,7 +12,7 @@ export const LOYALTY_PROGRAMS = [
       // Pizza Chains
       {
         chainKey: 'pizzaexpress',
-        businessName: 'PizzaExpress',
+        businessName: 'Pizza Express',
         dealDescription: '2 for 1 meals or 25% off total bill (Sun-Thu)',
         category: 'Mains',
       },
@@ -24,7 +24,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'dominos',
-        businessName: "Domino's Pizza",
+        businessName: "Domino's",
         dealDescription: '50% off pizza delivery min £30 spend (Mon-Sun)',
         category: 'Mains',
       },
@@ -179,7 +179,7 @@ export const LOYALTY_PROGRAMS = [
       // Cafes & Beverages
       {
         chainKey: 'caffe-nero',
-        businessName: 'Caffè Nero',
+        businessName: 'Caffe Nero',
         dealDescription: '25% off barista drinks twice daily (Mon-Sun)',
         category: 'Drinks',
       },
@@ -241,7 +241,7 @@ export const LOYALTY_PROGRAMS = [
     partners: [
       {
         chainKey: 'dominos',
-        businessName: "Domino's Pizza",
+        businessName: "Domino's",
         dealDescription: '£7.99 Any Size Pizza (Collection) – Monday to Sunday',
         category: 'Mains',
       },
@@ -259,13 +259,13 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'pizzaexpress',
-        businessName: 'PizzaExpress',
+        businessName: 'Pizza Express',
         dealDescription: '25% Off Collection – Monday to Sunday',
         category: 'Mains',
       },
       {
         chainKey: 'pizzaexpress',
-        businessName: 'PizzaExpress',
+        businessName: 'Pizza Express',
         dealDescription: '25% Off Total Bill (In-store) – Sunday to Friday',
         category: 'Mains',
       },
@@ -355,7 +355,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'frankie-bennys',
-        businessName: "Frankie & Benny's",
+        businessName: "Frankie & Benny",
         dealDescription: 'Free Main Course',
         category: 'Mains',
       },
@@ -373,7 +373,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'gails-bakery',
-        businessName: "Gail's Bakery",
+        businessName: "Gail's",
         dealDescription: 'Free Sweet Treat And Hot Drink',
         category: 'Dessert',
       },
@@ -415,7 +415,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'caffe-nero',
-        businessName: 'Caffè Nero',
+        businessName: 'Caffe Nero',
         dealDescription: 'Free Drink / Any Drink For £1',
         category: 'Drinks',
       },
@@ -505,7 +505,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'costa-coffee',
-        businessName: 'Costa Coffee',
+        businessName: 'Costa',
         dealDescription: 'Free Cake Slice',
         category: 'Dessert',
       },
@@ -595,7 +595,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'jacks-beans-coffee',
-        businessName: "Jack's Beans Coffee",
+        businessName: "Jack's Beans",
         dealDescription: 'Free Coffee',
         category: 'Drinks',
       },
@@ -775,7 +775,7 @@ export const LOYALTY_PROGRAMS = [
       },
       {
         chainKey: 'pizzaexpress',
-        businessName: 'PizzaExpress',
+        businessName: 'Pizza Express',
         dealDescription: '25% off your bill when dining in restaurant',
         category: 'Mains',
       },

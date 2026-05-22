@@ -6,10 +6,13 @@
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  'https://lz4.overpass-api.de/api/interpreter',
+  'https://z.overpass-api.de/api/interpreter',
   'https://overpass.openstreetmap.fr/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter'
 ];
-const USER_AGENT = 'FoodDealsApp/1.0 (Local Developer)';
+// OpenStreetMap blocks generic browser UAs from scripts (403 Forbidden). We must use a descriptive Bot UA with contact info.
+const USER_AGENT = 'FoodDealsApp/1.2 (Bot; contact: developer@localhost)';
 
 const EARTH_RADIUS_MILES = 3958.8;
 
@@ -88,13 +91,21 @@ export async function autocompleteRestaurants(input, location, signal) {
   return out;
 }
 
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function buildOverpassRegex(string) {
+  let s = string.trim();
+  s = s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // Escape regex special chars
+  s = s.replace(/['’`]/g, '.?'); // Optional apostrophe (e.g. McDonald's)
+  s = s.replace(/!/g, '.?'); // Optional exclamation
+  s = s.replace(/\\?&/g, '.*'); // Ampersand can be "and"
+  s = s.replace(/\s+/g, '.*'); // Spaces can be any characters or missing
+  // Replace all vowels with wildcard to seamlessly match accented characters (é, è, â, etc.) in OSM
+  s = s.replace(/[aAáàâäeEéèêëiIíìîïoOóòôöuUúùûü]/g, '.');
+  return s;
 }
 
 export async function resolveBranchesForChain(chainTitle, location, radiusMeters, signal) {
   const radiusMetersForBias = Math.min(radiusMeters, 50000); // Allow frontend to dictate radius
-  const safeChain = escapeRegExp(chainTitle.trim());
+  const safeChain = buildOverpassRegex(chainTitle);
 
   // Overpass QL: Find any nodes/ways (nw) where name or brand matches the search within the radius. (Skipping slow relations)
   // qt: Tells the server to skip sorting by ID and just dump results instantly.
@@ -111,35 +122,117 @@ export async function resolveBranchesForChain(chainTitle, location, radiusMeters
     out center qt;
   `;
 
-  try {
-    // RACE CONDITION: Fire the request to all 3 servers at the exact same time.
-    // Promise.any() resolves the millisecond the FASTEST server replies, completely ignoring the slow ones!
-    const json = await Promise.any(OVERPASS_ENDPOINTS.map(async (endpoint) => {
+  let result = null;
+  const errors = [];
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    if (signal?.aborted) throw new Error('Aborted by client');
+    try {
       const res = await fetch(endpoint, {
-        method: 'POST', signal,
+        method: 'POST',
+        signal,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT, 'Accept': 'application/json' },
         body: `data=${encodeURIComponent(query)}`,
       });
-      if (res.status === 429) throw new Error('Rate limited');
-      if (!res.ok) throw new Error(res.statusText || 'Overpass search failed');
+      if (res.status === 429) throw new Error(`Rate limited by ${endpoint}`);
+      if (!res.ok) throw new Error(`Search failed at ${endpoint}: ${res.statusText || res.status}`);
       const data = await res.json();
       if (data.remark && data.remark.toLowerCase().includes('error')) throw new Error(data.remark);
-      return data;
-    }));
-
-    const elements = Array.isArray(json.elements) ? json.elements : [];
-    return elements
-      .map((el) => {
-        const lat = el.lat || el.center?.lat;
-        const lon = el.lon || el.center?.lon;
-        const name = el.tags?.name || el.tags?.brand || chainTitle;
-        const address = [el.tags?.['addr:street'], el.tags?.['addr:city'], el.tags?.['addr:postcode']].filter(Boolean).join(', ');
-        return { id: `osm_${el.id}`, name, address, latitude: Number(lat), longitude: Number(lon) };
-      })
-      .filter((p) => p.id && Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
-      .filter((p) => placeNameMatchesChain(chainTitle, p.name));
-  } catch (e) {
-    if (e.name === 'AbortError') throw e;
-    throw new Error('All Overpass endpoints failed or timed out');
+      
+      result = data;
+      break; // Success! No need to try fallback endpoints.
+    } catch (e) {
+      if (e.name === 'AbortError') throw e; // Bubble up client disconnects immediately
+      errors.push(e.message);
+    }
   }
+
+  if (!result) {
+    console.error(`[placesService] Error searching "${chainTitle}":`, errors.join(' | '));
+    const firstErr = errors[0] === 'fetch failed' ? 'Connection Refused (IP Ban)' : errors[0];
+    throw new Error(`OpenStreetMap Error: ${firstErr || 'Timeout'}`);
+  }
+
+  const elements = Array.isArray(result.elements) ? result.elements : [];
+  return elements
+    .map((el) => {
+      const lat = el.lat || el.center?.lat;
+      const lon = el.lon || el.center?.lon;
+      const name = el.tags?.name || el.tags?.brand || chainTitle;
+      const address = [el.tags?.['addr:street'], el.tags?.['addr:city'], el.tags?.['addr:postcode']].filter(Boolean).join(', ');
+      return { id: `osm_${el.id}`, name, address, latitude: Number(lat), longitude: Number(lon) };
+    })
+    .filter((p) => p.id && Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+    .filter((p) => placeNameMatchesChain(chainTitle, p.name));
+}
+
+export async function resolveBranchesForChains(chainTitles, location, radiusMeters, signal) {
+  const radiusMetersForBias = Math.min(radiusMeters, 50000);
+  const validTitles = chainTitles.filter(Boolean);
+  if (validTitles.length === 0) return [];
+
+  // Combine all names into a single massive regex query like "(KFC|McDonald's|Taco Bell)"
+  const safeRegex = '(' + validTitles.map(buildOverpassRegex).join('|') + ')';
+
+  const query = `
+    [out:json][timeout:60];
+    (
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["amenity"]["name"~"${safeRegex}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["amenity"]["brand"~"${safeRegex}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["amenity"]["operator"~"${safeRegex}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["shop"]["name"~"${safeRegex}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["shop"]["brand"~"${safeRegex}",i];
+      nw(around:${radiusMetersForBias},${location.latitude},${location.longitude})["shop"]["operator"~"${safeRegex}",i];
+    );
+    out center qt;
+  `;
+
+  let result = null;
+  const errors = [];
+
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    if (signal?.aborted) throw new Error('Aborted by client');
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        signal,
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': USER_AGENT, 'Accept': 'application/json' },
+        body: `data=${encodeURIComponent(query)}`,
+      });
+      if (res.status === 429) throw new Error(`Rate limited by ${endpoint}`);
+      if (!res.ok) throw new Error(`Search failed at ${endpoint}: ${res.statusText || res.status}`);
+      const data = await res.json();
+      if (data.remark && data.remark.toLowerCase().includes('error')) throw new Error(data.remark);
+      
+      result = data;
+      break;
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      errors.push(e.message);
+    }
+  }
+
+  if (!result) {
+    console.error(`[placesService] Error batch searching:`, errors.join(' | '));
+    const firstErr = errors[0] === 'fetch failed' ? 'Connection Refused (IP Ban)' : errors[0];
+    throw new Error(`OpenStreetMap Error: ${firstErr || 'Timeout'}`);
+  }
+
+  const elements = Array.isArray(result.elements) ? result.elements : [];
+  return elements
+    .map((el) => {
+      const lat = el.lat || el.center?.lat;
+      const lon = el.lon || el.center?.lon;
+      const name = el.tags?.name || el.tags?.brand || el.tags?.operator || '';
+      const address = [el.tags?.['addr:street'], el.tags?.['addr:city'], el.tags?.['addr:postcode']].filter(Boolean).join(', ');
+      return { id: `osm_${el.id}`, name, address, latitude: Number(lat), longitude: Number(lon) };
+    })
+    .filter((p) => p.id && Number.isFinite(p.latitude) && Number.isFinite(p.longitude))
+    .map((p) => {
+      // Attach the original requested chain title to the result so the frontend knows which partner this belongs to!
+      const matchedChain = validTitles.find((t) => placeNameMatchesChain(t, p.name));
+      if (matchedChain) return { ...p, matchedChain };
+      return null;
+    })
+    .filter(Boolean);
 }

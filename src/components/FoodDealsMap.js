@@ -13,6 +13,7 @@ import { LoyaltyProgramModal } from './LoyaltyProgramModal';
 import { ALL_KEY, RestaurantSearchHeader } from './RestaurantSearchHeader';
 import { RestaurantSearchModal } from './RestaurantSearchModal';
 import { resolveBranchesForChain } from '../services/googlePlaces';
+import { apiPostJson } from '../services/foodDealsApi';
 import { haversineDistanceMiles, milesToMeters } from '../utils/geo';
 
 // Leaflet HTML Template injected directly into the WebView
@@ -263,10 +264,18 @@ export function FoodDealsMap() {
       const searchRadiusM = milesToMeters(VISIBLE_DEALS_RADIUS_MILES);
       let newlyDiscoveredDeals = [];
 
-      for (const chain of chainsList) {
-        try {
-          const branches = await resolveBranchesForChain(chain.name, userLocation, searchRadiusM);
-          const freshPins = branches.map(b => ({
+      try {
+        const uniqueNames = Array.from(new Set(chainsList.map((c) => c.name)));
+        const res = await apiPostJson('/api/places/branches/batch', {
+          chainTitles: uniqueNames,
+          location: userLocation,
+          radiusMeters: searchRadiusM,
+        });
+        const batched = res.branches || [];
+
+        for (const chain of chainsList) {
+          const branches = batched.filter((b) => b.matchedChain === chain.name);
+          const freshPins = branches.map((b) => ({
             id: `${b.id}_${chain.chainKey}`,
             googlePlaceId: b.id,
             businessName: b.name,
@@ -278,9 +287,9 @@ export function FoodDealsMap() {
             chainKey: chain.chainKey,
           }));
           newlyDiscoveredDeals.push(...freshPins);
-        } catch (e) {
-          console.warn(`Background sync failed for ${chain.name}:`, e);
         }
+      } catch (e) {
+        console.warn('Batch background sync failed:', e);
       }
 
       // 3. Merge any newly found local pins into the deals array
@@ -610,46 +619,76 @@ export function FoodDealsMap() {
       const newDeals = [];
       const searchRadiusM = milesToMeters(VISIBLE_DEALS_RADIUS_MILES);
 
+      const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+      const CACHE_AREA_M = 40_000;
+      const toFetch = [];
+
       for (const partner of program.partners) {
         const chainSlug = slugChain(partner.businessName);
-        const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-        const CACHE_AREA_M = 40_000;
-
         try {
-          let branches = await getCachedBranchesForArea(
-            chainSlug,
-            userLocation.latitude,
-            userLocation.longitude,
-            CACHE_TTL_MS,
-            CACHE_AREA_M
-          );
-          if (!branches || branches.length === 0) {
-            branches = await resolveBranchesForChain(partner.businessName, userLocation, searchRadiusM);
+          const branches = await getCachedBranchesForArea(chainSlug, userLocation.latitude, userLocation.longitude, CACHE_TTL_MS, CACHE_AREA_M);
+          if (branches && branches.length > 0) {
+            const partnerDeals = branches.map((b) => ({
+              id: `${b.id}_${program.id}_${partner.chainKey}`,
+              googlePlaceId: b.id,
+              businessName: b.name,
+              address: b.address,
+              latitude: b.latitude,
+              longitude: b.longitude,
+              dealDescription: `${partner.dealDescription} (${program.name})`,
+              category: partner.category,
+              chainKey: partner.chainKey,
+              chainName: partner.businessName,
+              programId: program.id,
+              programName: program.name,
+            }));
+            newDeals.push(...partnerDeals);
+          } else {
+            toFetch.push(partner);
+          }
+        } catch (e) {
+          toFetch.push(partner);
+        }
+      }
+
+      if (toFetch.length > 0) {
+        try {
+          const uniqueNames = Array.from(new Set(toFetch.map((p) => p.businessName)));
+          const res = await apiPostJson('/api/places/branches/batch', {
+            chainTitles: uniqueNames,
+            location: userLocation,
+            radiusMeters: searchRadiusM,
+          });
+          const batched = res.branches || [];
+
+          for (const partner of toFetch) {
+            const branches = batched.filter((b) => b.matchedChain === partner.businessName);
             if (branches.length > 0) {
+              const chainSlug = slugChain(partner.businessName);
               await saveBranchesCache(chainSlug, userLocation.latitude, userLocation.longitude, branches);
+
+              const partnerDeals = branches.map((b) => ({
+                id: `${b.id}_${program.id}_${partner.chainKey}`,
+                googlePlaceId: b.id,
+                businessName: b.name,
+                address: b.address,
+                latitude: b.latitude,
+                longitude: b.longitude,
+                dealDescription: `${partner.dealDescription} (${program.name})`,
+                category: partner.category,
+                chainKey: partner.chainKey,
+                chainName: partner.businessName,
+                programId: program.id,
+                programName: program.name,
+              }));
+              newDeals.push(...partnerDeals);
+            } else {
+              console.warn(`No branches found for ${partner.businessName}`);
             }
           }
-          if (branches.length === 0) {
-            console.warn(`No branches found for ${partner.businessName}`);
-            continue;
-          }
-          const partnerDeals = branches.map((b) => ({
-            id: `${b.id}_${program.id}_${partner.chainKey}`,
-            googlePlaceId: b.id,
-            businessName: b.name,
-            address: b.address,
-            latitude: b.latitude,
-            longitude: b.longitude,
-            dealDescription: `${partner.dealDescription} (${program.name})`,
-            category: partner.category,
-            chainKey: partner.chainKey,
-            chainName: partner.businessName,
-            programId: program.id,
-            programName: program.name,
-          }));
-          newDeals.push(...partnerDeals);
         } catch (e) {
-          console.error(`Error adding ${partner.businessName}:`, e);
+          console.error('Batch fetch failed:', e);
+          Alert.alert('Network Error', 'Failed to fetch some restaurants. Make sure your local API server is running.');
         }
       }
 

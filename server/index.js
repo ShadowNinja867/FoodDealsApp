@@ -2,7 +2,7 @@ import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
 import { readDeals, writeDeals } from './dealsStore.js';
-import { autocompleteRestaurants, resolveBranchesForChain } from './placesService.js';
+import { autocompleteRestaurants, resolveBranchesForChain, resolveBranchesForChains } from './placesService.js';
 
 const PORT = Number(process.env.PORT) || 3000;
 
@@ -52,6 +52,26 @@ app.post('/api/places/branches', async (req, res) => {
     res.json({ branches });
   } catch (e) {
     res.status(500).json({ error: e?.message || 'branches failed' });
+  }
+});
+
+app.post('/api/places/branches/batch', async (req, res) => {
+  try {
+    const { chainTitles, location, radiusMeters } = req.body || {};
+    if (!Array.isArray(chainTitles)) {
+      res.status(400).json({ error: 'chainTitles must be an array' });
+      return;
+    }
+    if (!location || typeof location.latitude !== 'number' || typeof location.longitude !== 'number') {
+      res.status(400).json({ error: 'location { latitude, longitude } required' });
+      return;
+    }
+    const radius = typeof radiusMeters === 'number' && radiusMeters > 0 ? radiusMeters : 8046;
+    const ac = new AbortController();
+    const branches = await resolveBranchesForChains(chainTitles.map(s => String(s).trim()), location, radius, ac.signal);
+    res.json({ branches });
+  } catch (e) {
+    res.status(500).json({ error: e?.message || 'batch branches failed' });
   }
 });
 
